@@ -46,16 +46,19 @@ class ActualBudgetService:
         self._session = aiohttp.ClientSession(headers=headers, timeout=timeout)
         return self._session
 
-    def _build_transaction_payload(self, gasto: Gasto) -> Dict[str, object]:
+    def _build_transaction_payload(self, gasto: Gasto, account_id: str = None) -> Dict[str, object]:
         """Genera el payload compatible con la API de Actual Budget."""
 
         date_iso = gasto.date_iso.split(" ")[0] if gasto.date_iso else None
         amount_milliunits = int(gasto.amount) * 1000
         payee = gasto.payee or settings.PAYEE_DEFAULT or None
 
+        # Usar el account_id pasado como parámetro, o el configurado por defecto
+        target_account_id = account_id or self.account_id
+
         payload: Dict[str, object] = {
             "id": str(uuid.uuid4()),
-            "accountId": self.account_id,
+            "accountId": target_account_id,
             "amount": amount_milliunits,
             "date": date_iso,
             "notes": gasto.description or None,
@@ -75,13 +78,16 @@ class ActualBudgetService:
 
         return payload
 
-    async def create_transaction(self, gasto: Gasto):
+    async def create_transaction(self, gasto: Gasto, account_id: str = None):
         """Inserta una transacción en Actual Budget."""
         if not self.is_configured():
             logger.debug("Actual Budget no configurado, omitiendo sincronización")
             return
 
-        payload = self._build_transaction_payload(gasto)
+        # Usar el account_id pasado como parámetro, o el configurado por defecto
+        target_account_id = account_id or self.account_id
+
+        payload = self._build_transaction_payload(gasto, account_id=target_account_id)
         session = await self._get_session()
 
         endpoints = [
@@ -91,7 +97,7 @@ class ActualBudgetService:
 
         for path in endpoints:
             endpoint = urljoin(f"{self.base_url}/", path)
-            body = {"accountId": self.account_id, "transactions": [payload]}
+            body = {"accountId": target_account_id, "transactions": [payload]}
             logger.debug("Intentando sincronizar en %s", endpoint)
 
             try:

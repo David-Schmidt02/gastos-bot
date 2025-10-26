@@ -109,7 +109,18 @@ class GastosBot:
 
             if current_stage == "description":
                 stage, draft = await self.gastos_service.process_wizard_description(message, session)
-                self.ledger_repository.clear_session(message.user.user_id)
+                if stage:
+                    self.ledger_repository.save_session(message.user.user_id, {"stage": stage, "draft": draft})
+                else:
+                    self.ledger_repository.clear_session(message.user.user_id)
+                return
+
+            if current_stage == "account":
+                stage, draft = await self.gastos_service.process_wizard_account(message, session)
+                if stage:
+                    self.ledger_repository.save_session(message.user.user_id, {"stage": stage, "draft": draft})
+                else:
+                    self.ledger_repository.clear_session(message.user.user_id)
                 return
 
             # Si llega acá, es un mensaje no reconocido

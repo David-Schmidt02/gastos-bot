@@ -69,6 +69,18 @@ class Settings:
         if os.getenv("ACTUAL_BUDGET_ENCRYPTION_KEY"):
             config["actual_budget"]["encryption_key"] = os.getenv("ACTUAL_BUDGET_ENCRYPTION_KEY")
 
+        # Cuentas de Actual Budget (múltiples)
+        accounts = {}
+        if os.getenv("ACTUAL_BUDGET_ACCOUNT_MERCADOPAGO"):
+            accounts["MercadoPago"] = os.getenv("ACTUAL_BUDGET_ACCOUNT_MERCADOPAGO")
+        if os.getenv("ACTUAL_BUDGET_ACCOUNT_CREDICOOP"):
+            accounts["Credicoop"] = os.getenv("ACTUAL_BUDGET_ACCOUNT_CREDICOOP")
+        if os.getenv("ACTUAL_BUDGET_ACCOUNT_EFECTIVO"):
+            accounts["Efectivo"] = os.getenv("ACTUAL_BUDGET_ACCOUNT_EFECTIVO")
+
+        if accounts:
+            config["actual_budget"]["accounts"] = accounts
+
         return config
 
     @property
@@ -146,6 +158,11 @@ class Settings:
     def ACTUAL_BUDGET_ENCRYPTION_KEY(self) -> str:
         """Clave de cifrado para instancias auto-gestionadas de Actual Budget."""
         return self._config.get("actual_budget", {}).get("encryption_key")
+
+    @property
+    def ACTUAL_BUDGET_ACCOUNTS(self) -> dict:
+        """Diccionario de cuentas disponibles {nombre: account_id}."""
+        return self._config.get("actual_budget", {}).get("accounts", {})
 
     def validate(self):
         """Valida que la configuración esté completa."""

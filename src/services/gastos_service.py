@@ -26,13 +26,13 @@ class GastosService:
         self.ledger = ledger_repository
         self.actual_budget = actual_budget_service
 
-    async def sync_with_actual_budget(self, gasto: Gasto):
+    async def sync_with_actual_budget(self, gasto: Gasto, account_id: str = None):
         """Sincroniza el gasto con Actual Budget si hay configuración."""
         if not self.actual_budget:
             return
 
         try:
-            await self.actual_budget.create_transaction(gasto)
+            await self.actual_budget.create_transaction(gasto, account_id=account_id)
         except Exception as exc:
             logger.error("Fallo al sincronizar con Actual Budget: %s", exc, exc_info=True)
 
@@ -171,17 +171,74 @@ class GastosService:
         session: dict
     ) -> Tuple[Optional[str], Optional[dict]]:
         """
-        Procesa el paso final (descripción) y guarda el gasto.
+        Procesa el paso de descripción.
 
         Returns:
-            (None, None) - Finaliza el wizard
+            (next_stage, updated_draft)
         """
         description = ""
         if message.text.strip().lower() != "/omitir":
             description = message.text.strip()
 
-        # Crear el gasto
+        # Actualizar draft
         draft = session.get("draft", {})
+        draft["description"] = description
+
+        # Si hay cuentas configuradas, preguntar en cuál registrar
+        accounts = settings.ACTUAL_BUDGET_ACCOUNTS
+        if accounts:
+            account_names = list(accounts.keys())
+            await self.telegram.send_message(
+                message.chat.chat_id,
+                "🏦 ¿En qué cuenta registrar?",
+                reply_markup=self.telegram.make_keyboard_buttons(account_names)
+            )
+            return ("account", draft)
+
+        # Si no hay cuentas configuradas, guardar directamente
+        return await self._save_gasto_from_draft(message, draft)
+
+    async def process_wizard_account(
+        self,
+        message: TelegramMessage,
+        session: dict
+    ) -> Tuple[Optional[str], Optional[dict]]:
+        """
+        Procesa la selección de cuenta y guarda el gasto.
+
+        Returns:
+            (None, None) - Finaliza el wizard
+        """
+        account_name = message.text.strip()
+
+        # Validar que la cuenta exista
+        accounts = settings.ACTUAL_BUDGET_ACCOUNTS
+        if account_name not in accounts:
+            await self.telegram.send_message(
+                message.chat.chat_id,
+                "❌ Cuenta inválida. Elegí una del teclado:"
+            )
+            return ("account", session.get("draft"))
+
+        # Actualizar draft con la cuenta seleccionada
+        draft = session.get("draft", {})
+        draft["account_name"] = account_name
+        draft["account_id"] = accounts[account_name]
+
+        # Guardar el gasto
+        return await self._save_gasto_from_draft(message, draft)
+
+    async def _save_gasto_from_draft(
+        self,
+        message: TelegramMessage,
+        draft: dict
+    ) -> Tuple[Optional[str], Optional[dict]]:
+        """
+        Guarda el gasto desde el draft.
+
+        Returns:
+            (None, None) - Finaliza el wizard
+        """
         gasto_type = draft.get("type", "expense")
 
         # Determinar el monto (negativo para gastos, positivo para ingresos)
@@ -201,7 +258,7 @@ class GastosService:
             amount=amount,
             currency=draft.get("currency", settings.DEFAULT_CURRENCY),
             category=draft.get("category", "Varios"),
-            description=description,
+            description=draft.get("description", ""),
             payee=settings.PAYEE_DEFAULT
         )
 
@@ -209,7 +266,14 @@ class GastosService:
         was_created = self.ledger.append_gasto(gasto)
 
         if was_created:
-            await self.sync_with_actual_budget(gasto)
+            # Sincronizar con Actual Budget pasando el account_id si fue seleccionado
+            account_id = draft.get("account_id")
+            await self.sync_with_actual_budget(gasto, account_id=account_id)
+
+        # Preparar mensaje de confirmación
+        account_info = ""
+        if draft.get("account_name"):
+            account_info = f"🏦 {draft['account_name']}\n"
 
         # Confirmar al usuario
         await self.telegram.send_message(
@@ -217,6 +281,7 @@ class GastosService:
             f"✅ {'Gasto' if gasto_type == 'expense' else 'Ingreso'} registrado!\n\n"
             f"💰 {abs(amount)} {gasto.currency}\n"
             f"📂 {gasto.category}\n"
+            f"{account_info}"
             f"📝 {gasto.description if gasto.description else 'Sin descripción'}\n\n"
             f"Podés seguir registrando desde el menú.",
             reply_markup=self.telegram.make_main_menu()
