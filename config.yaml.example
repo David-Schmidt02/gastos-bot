@@ -1,0 +1,15 @@
+bot_token: "TU_TOKEN_DE_BOTFATHER"
+default_currency: "ARS"
+timezone: "America/Argentina/Buenos_Aires"
+categories:
+  - Comida
+  - Supermercado
+  - Transporte
+  - Servicios
+  - Alquiler
+  - Salud
+  - Educación
+  - Ocio
+  - Ropa
+  - Varios
+payee_default: ""   # Dejalo vacío o poné algo como "Gasto manual"

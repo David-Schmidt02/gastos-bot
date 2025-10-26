@@ -1,0 +1,37 @@
+# Archivos de configuración con datos sensibles
+config.yaml
+state.json
+.env
+
+# Datos y exports
+data/
+*.csv
+*.json
+
+# Entorno virtual de Python
+.venv/
+venv/
+env/
+ENV/
+
+# Cache de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
