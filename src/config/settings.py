@@ -11,15 +11,39 @@ class Settings:
         self._config = self._load_config()
 
     def _load_config(self) -> dict:
-        """Carga configuración desde config.yaml."""
+        """
+        Carga configuración desde config.yaml (local) o env vars (producción).
+
+        Prioridad: ENV VARS > config.yaml > DEFAULTS
+        """
+        config = {}
         config_path = os.getenv("CONFIG_PATH", "config.yaml")
 
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
+        # Intentar cargar config.yaml si existe (local development)
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = yaml.safe_load(f) or {}
+            except Exception as e:
+                print(f"⚠️  No se pudo cargar {config_path}: {e}")
+                config = {}
 
-        # Sobrescribir con variables de entorno si existen
+        # Sobrescribir/agregar con variables de entorno (production)
         if os.getenv("TELEGRAM_BOT_TOKEN"):
             config["bot_token"] = os.getenv("TELEGRAM_BOT_TOKEN")
+
+        if os.getenv("DEFAULT_CURRENCY"):
+            config["default_currency"] = os.getenv("DEFAULT_CURRENCY")
+
+        if os.getenv("TIMEZONE"):
+            config["timezone"] = os.getenv("TIMEZONE")
+
+        if os.getenv("LOG_LEVEL"):
+            config["log_level"] = os.getenv("LOG_LEVEL")
+
+        # Categorías desde env (separadas por comas)
+        if os.getenv("CATEGORIES"):
+            config["categories"] = [cat.strip() for cat in os.getenv("CATEGORIES").split(",")]
 
         return config
 
