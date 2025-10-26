@@ -29,10 +29,13 @@ class GastosService:
     async def sync_with_actual_budget(self, gasto: Gasto, account_id: str = None):
         """Sincroniza el gasto con Actual Budget si hay configuración."""
         if not self.actual_budget:
+            logger.warning("ActualBudgetService no está inicializado, omitiendo sincronización")
             return
 
+        logger.info(f"Iniciando sincronización con Actual Budget (account_id={account_id})")
         try:
             await self.actual_budget.create_transaction(gasto, account_id=account_id)
+            logger.info("Sincronización completada exitosamente")
         except Exception as exc:
             logger.error("Fallo al sincronizar con Actual Budget: %s", exc, exc_info=True)
 
@@ -123,7 +126,15 @@ class GastosService:
         draft = session.get("draft", {})
         draft["currency"] = currency
 
-        # Mostrar botones de categorías
+        # Si es un ingreso, saltar categoría e ir directo a descripción
+        if draft.get("type") == "income":
+            await self.telegram.send_message(
+                message.chat.chat_id,
+                "📝 Descripción del ingreso (opcional)\n\nEscribí el texto o enviá /omitir"
+            )
+            return ("description", draft)
+
+        # Para gastos, mostrar botones de categorías
         await self.telegram.send_message(
             message.chat.chat_id,
             "📂 Elegí la categoría:",
@@ -248,6 +259,12 @@ class GastosService:
         else:
             amount = abs(amount)
 
+        # Categoría: solo para gastos, no para ingresos
+        if gasto_type == "expense":
+            category = draft.get("category", "Varios")
+        else:
+            category = draft.get("category", "")  # Ingresos sin categoría
+
         # Crear objeto Gasto
         gasto = Gasto(
             chat_id=message.chat.chat_id,
@@ -257,7 +274,7 @@ class GastosService:
             date_iso=self.to_local_datetime(message.date),
             amount=amount,
             currency=draft.get("currency", settings.DEFAULT_CURRENCY),
-            category=draft.get("category", "Varios"),
+            category=category,
             description=draft.get("description", ""),
             payee=settings.PAYEE_DEFAULT
         )

@@ -94,11 +94,14 @@ class ActualBudgetService:
                     cleared=True,  # Marcar como cleared
                 )
 
+                # Verificar si es nueva o existente ANTES del commit
+                is_new = t and t.changed()
+
                 # Commit para sincronizar con el servidor
                 actual.commit()
 
-                if t and t.changed():
-                    logger.info(f"✅ Transacción sincronizada con Actual Budget: {t.id}")
+                if is_new:
+                    logger.info(f"✅ Transacción nueva sincronizada con Actual Budget: {t.id}")
                 else:
                     logger.info("ℹ️ Transacción ya existía (duplicado evitado)")
 
