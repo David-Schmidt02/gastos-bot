@@ -28,6 +28,9 @@ class Settings:
                 print(f"⚠️  No se pudo cargar {config_path}: {e}")
                 config = {}
 
+        # Normalizar secciones
+        config.setdefault("actual_budget", {})
+
         # Sobrescribir/agregar con variables de entorno (production)
         if os.getenv("TELEGRAM_BOT_TOKEN"):
             config["bot_token"] = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -44,6 +47,27 @@ class Settings:
         # Categorías desde env (separadas por comas)
         if os.getenv("CATEGORIES"):
             config["categories"] = [cat.strip() for cat in os.getenv("CATEGORIES").split(",")]
+
+        if os.getenv("DATABASE_URL"):
+            config["database_url"] = os.getenv("DATABASE_URL")
+
+        if os.getenv("ACTUAL_BUDGET_DATABASE_URL"):
+            config["actual_budget"]["database_url"] = os.getenv("ACTUAL_BUDGET_DATABASE_URL")
+
+        if os.getenv("ACTUAL_BUDGET_API_URL"):
+            config["actual_budget"]["api_url"] = os.getenv("ACTUAL_BUDGET_API_URL")
+
+        if os.getenv("ACTUAL_BUDGET_API_TOKEN"):
+            config["actual_budget"]["api_token"] = os.getenv("ACTUAL_BUDGET_API_TOKEN")
+
+        if os.getenv("ACTUAL_BUDGET_BUDGET_ID"):
+            config["actual_budget"]["budget_id"] = os.getenv("ACTUAL_BUDGET_BUDGET_ID")
+
+        if os.getenv("ACTUAL_BUDGET_ACCOUNT_ID"):
+            config["actual_budget"]["account_id"] = os.getenv("ACTUAL_BUDGET_ACCOUNT_ID")
+
+        if os.getenv("ACTUAL_BUDGET_ENCRYPTION_KEY"):
+            config["actual_budget"]["encryption_key"] = os.getenv("ACTUAL_BUDGET_ENCRYPTION_KEY")
 
         return config
 
@@ -87,6 +111,41 @@ class Settings:
     def POLLING_INTERVAL(self) -> int:
         """Intervalo de polling en segundos."""
         return self._config.get("polling_interval", 5)
+
+    @property
+    def DATABASE_URL(self) -> str:
+        """Cadena de conexión a la base de datos del bot."""
+        return self._config.get("database_url")
+
+    @property
+    def ACTUAL_BUDGET_DATABASE_URL(self) -> str:
+        """Cadena de conexión utilizada por Actual Budget (opcional)."""
+        return self._config.get("actual_budget", {}).get("database_url")
+
+    @property
+    def ACTUAL_BUDGET_API_URL(self) -> str:
+        """Endpoint base de la API de Actual Budget."""
+        return self._config.get("actual_budget", {}).get("api_url")
+
+    @property
+    def ACTUAL_BUDGET_API_TOKEN(self) -> str:
+        """Token de autenticación para la API de Actual Budget."""
+        return self._config.get("actual_budget", {}).get("api_token")
+
+    @property
+    def ACTUAL_BUDGET_BUDGET_ID(self) -> str:
+        """Identificador del presupuesto en Actual Budget."""
+        return self._config.get("actual_budget", {}).get("budget_id")
+
+    @property
+    def ACTUAL_BUDGET_ACCOUNT_ID(self) -> str:
+        """Identificador de la cuenta destino en Actual Budget."""
+        return self._config.get("actual_budget", {}).get("account_id")
+
+    @property
+    def ACTUAL_BUDGET_ENCRYPTION_KEY(self) -> str:
+        """Clave de cifrado para instancias auto-gestionadas de Actual Budget."""
+        return self._config.get("actual_budget", {}).get("encryption_key")
 
     def validate(self):
         """Valida que la configuración esté completa."""

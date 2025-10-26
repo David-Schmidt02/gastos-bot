@@ -4,26 +4,29 @@ Bot de Telegram que te permite registrar gastos desde tu celular y sincronizarlo
 
 ## Características
 
-- **Sin servidor**: funciona con polling local, solo se ejecuta cuando prendés la PC
-- **Interfaz guiada**: el bot te guía paso a paso o podés usar comandos rápidos
-- **Categorías personalizables**: definidas en `config.yaml`
-- **Exportación a CSV**: formato compatible con Actual Budget
-- **Múltiples monedas**: soporte para ARS, USD, EUR y más
-- **Timezone configurable**: timestamps en tu zona horaria
+- **Persistencia en PostgreSQL** (opcional): si definís `DATABASE_URL`, el bot guarda el ledger y el estado en la base (ideal para Railway).
+- **Modo legado en archivos**: sin base de datos, sigue funcionando con `data/ledger.json` para pruebas locales.
+- **Sincronización inmediata con Actual Budget**: cada gasto se envía automáticamente al servidor configurado.
+- **Interfaz guiada**: el bot te guía paso a paso o podés usar comandos rápidos.
+- **Categorías personalizables** y múltiples monedas configurables.
+- **Exportación CSV** compatible con Actual Budget.
 
 ## Estructura del proyecto
 
 ```
 gastos-bot/
-├── config.yaml              # Configuración (token, categorías, etc.)
-├── state.json               # Estado del bot (se crea automáticamente)
+├── docs/                    # Guías de despliegue y esquema SQL
 ├── requirements.txt         # Dependencias de Python
-├── main.py                  # Script principal de sincronización
-├── parser.py                # Parser de comandos y validaciones
-├── export_actual.py         # Generador de CSV para Actual Budget
+├── main.py                  # Punto de entrada del bot
+├── src/
+│   ├── bot.py               # Orquestador principal
+│   ├── config/settings.py   # Manejo de configuración y env vars
+│   ├── repositories/        # Persistencia (archivos o PostgreSQL)
+│   ├── schemas.py           # Dataclasses compartidas
+│   └── services/            # Servicios (Telegram, Actual Budget, etc.)
 ├── data/
-│   ├── ledger.json         # Base de datos local (histórico)
-│   └── import_actual.csv   # CSV para importar en Actual
+│   ├── ledger.json          # Ledger local (solo modo legacy)
+│   └── import_actual.csv    # Exportaciones CSV
 └── README.md
 ```
 
@@ -37,12 +40,9 @@ gastos-bot/
 
 ### 2. Configurar el proyecto
 
-1. Editá `config.yaml` y pegá tu token:
-```yaml
-bot_token: "TU_TOKEN_AQUI"
-```
+1. Editá `config.yaml` y pegá tu token (o usá variables de entorno, ver sección "Configuración avanzada").
 
-2. (Opcional) Personalizá las categorías en `config.yaml`
+2. (Opcional) Personalizá las categorías en `config.yaml`.
 
 ### 3. Instalar dependencias
 
@@ -100,32 +100,31 @@ Cuando prendés la PC, ejecutá:
 python main.py
 ```
 
-Esto procesará todos los mensajes pendientes y actualizará `data/ledger.json`.
+Esto procesará todos los mensajes pendientes y actualizará tu base de datos. Si no configuraste PostgreSQL, el bot seguirá escribiendo en `data/ledger.json`.
 
-### Exportar a Actual Budget
+### Sincronización automática con Actual Budget
 
-#### Opción 1: Desde Telegram
-Enviá `/export` al bot y el CSV se generará automáticamente.
+Si configurás las variables `ACTUAL_BUDGET_API_URL`, `ACTUAL_BUDGET_BUDGET_ID` y `ACTUAL_BUDGET_ACCOUNT_ID` (y opcionalmente el
+token/encryption key), cada gasto registrado se envía a Actual Budget en el acto usando la API oficial.
 
-#### Opción 2: Desde la PC
-```bash
-python export_actual.py
-```
+- El monto se envía en **milliunits** (p. ej. `$ -2500` se transforma en `-2500000`).
+- Se agrega un `importedId` con el formato `telegram:<chat_id>:<message_id>` para evitar duplicados si reenviás el mismo mensaje.
+- Si completás el `payee_default` o escribís un pagador durante el flujo del bot, se usa como `payeeName`.
+- El nombre de la categoría (`categoryName`) debe existir en Actual Budget; si no coincide se importará como `Sin categorizar`.
 
-Esto genera `data/import_actual.csv` con el formato:
+> 💡 Si tu versión del servidor no soporta el endpoint `/import-transactions`, el bot hace fallback automático al endpoint
+> `/transactions` clásico.
+
+### Exportar manualmente a CSV
+
+Si preferís el modo tradicional, `/export` sigue generando `data/import_actual.csv` con el formato:
+
 ```csv
 Date,Payee,Category,Notes,Amount
 2025-01-15,,"Comida","Empanadas",-2500
 ```
 
-### Importar en Actual Budget
-
-1. Abrí Actual Budget
-2. Andá a la cuenta donde querés importar
-3. Click en **Import** → **CSV**
-4. Seleccioná `data/import_actual.csv`
-5. Mapeá las columnas (Actual lo recuerda para la próxima)
-6. Listo!
+Luego importalo desde la UI de Actual Budget con **Import → CSV**.
 
 ## Configuración avanzada
 
@@ -139,8 +138,16 @@ categories:
   - Comida
   - Supermercado
   - Transporte
-  # ... agregá las que quieras
-payee_default: ""  # Dejalo vacío o escribí un nombre
+payee_default: ""
+
+# Opcional: configura endpoints de Actual Budget y base de datos
+database_url: "postgresql://usuario:pass@host:5432/actual"
+actual_budget:
+  api_url: "https://actual-server.production.up.railway.app/"
+  api_token: "TOKEN_OPCIONAL"
+  budget_id: "<uuid-del-presupuesto>"
+  account_id: "<uuid-de-la-cuenta>"
+  encryption_key: "<clave-si-tu-servidor-lo-requiere>"
 ```
 
 ### Agregar categorías
@@ -164,8 +171,8 @@ timezone: "America/Buenos_Aires"  # o tu zona
 
 ## Formato de datos
 
-### ledger.json
-Base de datos local con todos los movimientos:
+### ledger.json (modo legacy)
+Si no configurás PostgreSQL, el bot crea `data/ledger.json` con todos los movimientos:
 
 ```json
 [
@@ -185,7 +192,7 @@ Base de datos local con todos los movimientos:
 ```
 
 ### import_actual.csv
-Formato para importar en Actual Budget:
+Formato para importar manualmente en Actual Budget:
 
 ```csv
 Date,Payee,Category,Notes,Amount
@@ -193,6 +200,10 @@ Date,Payee,Category,Notes,Amount
 ```
 
 **Nota:** Los gastos son negativos, los ingresos positivos.
+
+## Despliegue gestionado
+
+La guía [docs/railway-actual-budget.md](docs/railway-actual-budget.md) detalla cómo desplegar Actual Budget (server + web) y este bot en Railway compartiendo una misma base PostgreSQL.
 
 ## Tips y trucos
 

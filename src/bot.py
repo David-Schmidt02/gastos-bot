@@ -2,6 +2,7 @@
 import asyncio
 from src.config.settings import settings
 from src.services.telegram_service import TelegramService
+from src.services.actual_budget_service import ActualBudgetService
 from src.services.gastos_service import GastosService
 from src.repositories.ledger_repository import LedgerRepository
 from src.schemas import TelegramMessage
@@ -15,10 +16,12 @@ class GastosBot:
 
     def __init__(self):
         self.telegram_service = TelegramService()
+        self.actual_budget_service = ActualBudgetService()
         self.ledger_repository = LedgerRepository()
         self.gastos_service = GastosService(
             telegram_service=self.telegram_service,
-            ledger_repository=self.ledger_repository
+            ledger_repository=self.ledger_repository,
+            actual_budget_service=self.actual_budget_service,
         )
 
     async def process_message(self, update: dict):
@@ -166,4 +169,5 @@ class GastosBot:
             # Cerrar conexiones
             logger.info("Cerrando conexiones...")
             await self.telegram_service.close()
+            await self.actual_budget_service.close()
             logger.info("✅ Conexiones cerradas correctamente")
