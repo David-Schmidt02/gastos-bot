@@ -1,11 +1,13 @@
-"""Cliente simple para interactuar con Actual Budget."""
+"""Cliente para interactuar con Actual Budget usando actualpy."""
 from __future__ import annotations
 
-import uuid
-from typing import Dict, Optional
-from urllib.parse import urljoin
+import asyncio
+import datetime
+from decimal import Decimal
+from typing import Optional
 
-import aiohttp
+from actual import Actual
+from actual.queries import reconcile_transaction, get_account
 
 from src.config.settings import settings
 from src.schemas import Gasto
@@ -15,133 +17,116 @@ logger = setup_logger(__name__)
 
 
 class ActualBudgetService:
-    """Servicio HTTP mínimo para insertar transacciones en Actual Budget."""
-
-    IMPORT_ENDPOINT = "api/v1/budgets/{budget_id}/import-transactions"
-    TRANSACTIONS_ENDPOINT = "api/v1/budgets/{budget_id}/transactions"
+    """Servicio para insertar transacciones en Actual Budget usando actualpy."""
 
     def __init__(self):
         self.base_url = settings.ACTUAL_BUDGET_API_URL.rstrip("/") if settings.ACTUAL_BUDGET_API_URL else None
-        self.api_token = settings.ACTUAL_BUDGET_API_TOKEN
-        self.budget_id = settings.ACTUAL_BUDGET_BUDGET_ID
-        self.account_id = settings.ACTUAL_BUDGET_ACCOUNT_ID
-        self.encryption_key = settings.ACTUAL_BUDGET_ENCRYPTION_KEY
         self.password = settings.ACTUAL_BUDGET_PASSWORD
-        self._session: Optional[aiohttp.ClientSession] = None
+        self.budget_id = settings.ACTUAL_BUDGET_BUDGET_ID
+        self.encryption_key = settings.ACTUAL_BUDGET_ENCRYPTION_KEY
 
     def is_configured(self) -> bool:
         """Indica si hay suficiente configuración para sincronizar."""
-        # account_id ahora es opcional, se pasa dinámicamente o se obtiene de múltiples cuentas
-        return bool(self.base_url and self.budget_id)
+        return bool(self.base_url and self.budget_id and self.password)
 
-    async def _get_session(self) -> aiohttp.ClientSession:
-        if self._session and not self._session.closed:
-            return self._session
+    def _create_transaction_sync(self, gasto: Gasto, account_id: str):
+        """
+        Crea una transacción usando actualpy (síncrono).
 
-        headers = {"Content-Type": "application/json"}
-        if self.api_token:
-            headers["Authorization"] = f"Bearer {self.api_token}"
-        if self.password:
-            headers["X-ACTUAL-PASSWORD"] = self.password
-        if self.encryption_key:
-            headers["X-Actual-Encryption-Key"] = self.encryption_key
+        Esta función se ejecuta en un thread separado para no bloquear el event loop.
+        """
+        logger.debug(f"Conectando a Actual Budget: {self.base_url}, budget: {self.budget_id}")
 
-        timeout = aiohttp.ClientTimeout(total=15)
-        self._session = aiohttp.ClientSession(headers=headers, timeout=timeout)
-        return self._session
+        with Actual(
+            base_url=self.base_url,
+            password=self.password,
+            file=self.budget_id,
+            encryption_password=self.encryption_key,
+        ) as actual:
+            # Obtener la cuenta
+            try:
+                account = get_account(actual.session, account_id)
+                if not account:
+                    logger.error(f"Cuenta no encontrada: {account_id}")
+                    return
+            except Exception as e:
+                logger.error(f"Error al obtener cuenta {account_id}: {e}")
+                return
 
-    def _build_transaction_payload(self, gasto: Gasto, account_id: str = None) -> Dict[str, object]:
-        """Genera el payload compatible con la API de Actual Budget."""
+            # Parsear fecha
+            date_str = gasto.date_iso.split(" ")[0] if gasto.date_iso else None
+            if date_str:
+                try:
+                    date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+                except ValueError:
+                    date = datetime.date.today()
+            else:
+                date = datetime.date.today()
 
-        date_iso = gasto.date_iso.split(" ")[0] if gasto.date_iso else None
-        amount_milliunits = int(gasto.amount) * 1000
-        payee = gasto.payee or settings.PAYEE_DEFAULT or None
+            # Convertir monto a Decimal (actualpy usa Decimal, no milliunits)
+            amount = Decimal(str(gasto.amount))
 
-        # Usar el account_id pasado como parámetro, o el configurado por defecto
-        target_account_id = account_id or self.account_id
+            # Payee
+            payee = gasto.payee or settings.PAYEE_DEFAULT or None
 
-        payload: Dict[str, object] = {
-            "id": str(uuid.uuid4()),
-            "accountId": target_account_id,
-            "amount": amount_milliunits,
-            "date": date_iso,
-            "notes": gasto.description or None,
-            "importedId": f"telegram:{gasto.chat_id}:{gasto.message_id}",
-            "metadata": {
-                "chatId": gasto.chat_id,
-                "messageId": gasto.message_id,
-                "userId": gasto.user_id,
-            },
-        }
+            # Notes (descripción)
+            notes = gasto.description or ""
 
-        if payee:
-            payload["payeeName"] = payee
+            # Categoría (nombre de categoría)
+            category = gasto.category if gasto.category else None
 
-        if gasto.category:
-            payload["categoryName"] = gasto.category
+            # Crear imported_id único para evitar duplicados
+            imported_id = f"telegram:{gasto.chat_id}:{gasto.message_id}"
 
-        return payload
+            logger.info(f"Creando transacción: {date} | {amount} {gasto.currency} | {category} | {payee}")
+
+            # Usar reconcile_transaction que maneja duplicados automáticamente
+            try:
+                t = reconcile_transaction(
+                    actual.session,
+                    date=date,
+                    account=account,
+                    payee=payee,
+                    notes=notes,
+                    category=category,
+                    amount=amount,
+                    imported_id=imported_id,
+                    cleared=True,  # Marcar como cleared
+                )
+
+                # Commit para sincronizar con el servidor
+                actual.commit()
+
+                if t and t.changed():
+                    logger.info(f"✅ Transacción sincronizada con Actual Budget: {t.id}")
+                else:
+                    logger.info("ℹ️ Transacción ya existía (duplicado evitado)")
+
+            except Exception as e:
+                logger.error(f"Error al crear transacción: {e}", exc_info=True)
+                raise
 
     async def create_transaction(self, gasto: Gasto, account_id: str = None):
-        """Inserta una transacción en Actual Budget."""
-        logger.debug(f"create_transaction llamado - base_url={self.base_url}, budget_id={self.budget_id}, account_id_param={account_id}")
+        """Inserta una transacción en Actual Budget (async wrapper)."""
+        logger.debug(f"create_transaction llamado - base_url={self.base_url}, budget_id={self.budget_id}, account_id={account_id}")
 
         if not self.is_configured():
-            logger.warning(f"Actual Budget no configurado correctamente - base_url={self.base_url}, budget_id={self.budget_id}")
+            logger.warning(f"Actual Budget no configurado correctamente - base_url={self.base_url}, budget_id={self.budget_id}, password={'***' if self.password else None}")
             return
 
-        # Usar el account_id pasado como parámetro, o el configurado por defecto
-        target_account_id = account_id or self.account_id
-
         # Validar que haya un account_id válido
-        if not target_account_id:
+        if not account_id:
             logger.error("No se puede sincronizar: account_id no especificado")
             return
 
-        logger.info(f"Sincronizando transacción: {gasto.amount} {gasto.currency} - {gasto.category} → cuenta {target_account_id}")
+        logger.info(f"Sincronizando transacción: {gasto.amount} {gasto.currency} - {gasto.category} → cuenta {account_id}")
 
-        payload = self._build_transaction_payload(gasto, account_id=target_account_id)
-        session = await self._get_session()
-
-        endpoints = [
-            self.IMPORT_ENDPOINT.format(budget_id=self.budget_id),
-            self.TRANSACTIONS_ENDPOINT.format(budget_id=self.budget_id),
-        ]
-
-        for path in endpoints:
-            endpoint = urljoin(f"{self.base_url}/", path)
-            body = {"accountId": target_account_id, "transactions": [payload]}
-            logger.debug("Intentando sincronizar en %s", endpoint)
-
-            try:
-                async with session.post(endpoint, json=body) as response:
-                    if response.status == 404 and path == endpoints[0]:
-                        # Algunas versiones del server no soportan import-transactions
-                        logger.debug("Endpoint import-transactions no disponible, probando fallback")
-                        continue
-
-                    if response.status >= 400:
-                        error_body = await response.text()
-                        logger.error(
-                            "Actual Budget rechazó la transacción (%s): %s",
-                            response.status,
-                            error_body,
-                        )
-                        return
-
-                    logger.info("Transacción sincronizada con Actual Budget (%s)", path)
-                    return
-            except aiohttp.ClientError as exc:
-                logger.error("Error HTTP al sincronizar con Actual Budget: %s", exc, exc_info=True)
-                return
-            except Exception as exc:  # pragma: no cover - fallback ante errores inesperados
-                logger.error("No se pudo sincronizar con Actual Budget: %s", exc, exc_info=True)
-                return
-
-        logger.error("No se pudo sincronizar con Actual Budget: endpoints agotados")
+        try:
+            # Ejecutar la función síncrona en un thread separado
+            await asyncio.to_thread(self._create_transaction_sync, gasto, account_id)
+        except Exception as exc:
+            logger.error(f"Fallo al sincronizar con Actual Budget: {exc}", exc_info=True)
 
     async def close(self):
-        if self._session and not self._session.closed:
-            await self._session.close()
-            self._session = None
-
+        """Cierra recursos (no necesario para actualpy, mantiene compatibilidad)."""
+        pass
