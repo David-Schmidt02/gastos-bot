@@ -30,7 +30,8 @@ class ActualBudgetService:
 
     def is_configured(self) -> bool:
         """Indica si hay suficiente configuración para sincronizar."""
-        return bool(self.base_url and self.budget_id and self.account_id)
+        # account_id ahora es opcional, se pasa dinámicamente o se obtiene de múltiples cuentas
+        return bool(self.base_url and self.budget_id)
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session and not self._session.closed:
@@ -86,6 +87,11 @@ class ActualBudgetService:
 
         # Usar el account_id pasado como parámetro, o el configurado por defecto
         target_account_id = account_id or self.account_id
+
+        # Validar que haya un account_id válido
+        if not target_account_id:
+            logger.error("No se puede sincronizar: account_id no especificado")
+            return
 
         payload = self._build_transaction_payload(gasto, account_id=target_account_id)
         session = await self._get_session()

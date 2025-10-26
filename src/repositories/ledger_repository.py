@@ -312,7 +312,8 @@ class LedgerRepository:
         database_url: Optional[str] = None,
     ):
         db_url = database_url or settings.DATABASE_URL
-        if db_url:
+        # Validar que la URL no sea None ni cadena vacía
+        if db_url and db_url.strip():
             self._backend = _DatabaseLedgerBackend(db_url)
         else:
             self._backend = _FileLedgerBackend(ledger_path, state_path)

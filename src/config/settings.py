@@ -1,7 +1,7 @@
 """Configuración centralizada del bot."""
 import os
 import yaml
-from typing import List
+from typing import List, Optional
 
 
 class Settings:
@@ -125,9 +125,10 @@ class Settings:
         return self._config.get("polling_interval", 5)
 
     @property
-    def DATABASE_URL(self) -> str:
+    def DATABASE_URL(self) -> Optional[str]:
         """Cadena de conexión a la base de datos del bot."""
-        return self._config.get("database_url")
+        url = self._config.get("database_url")
+        return url if url else None
 
     @property
     def ACTUAL_BUDGET_DATABASE_URL(self) -> str:
