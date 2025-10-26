@@ -26,6 +26,7 @@ class ActualBudgetService:
         self.budget_id = settings.ACTUAL_BUDGET_BUDGET_ID
         self.account_id = settings.ACTUAL_BUDGET_ACCOUNT_ID
         self.encryption_key = settings.ACTUAL_BUDGET_ENCRYPTION_KEY
+        self.password = settings.ACTUAL_BUDGET_PASSWORD
         self._session: Optional[aiohttp.ClientSession] = None
 
     def is_configured(self) -> bool:
@@ -40,6 +41,8 @@ class ActualBudgetService:
         headers = {"Content-Type": "application/json"}
         if self.api_token:
             headers["Authorization"] = f"Bearer {self.api_token}"
+        if self.password:
+            headers["X-ACTUAL-PASSWORD"] = self.password
         if self.encryption_key:
             headers["X-Actual-Encryption-Key"] = self.encryption_key
 
@@ -81,8 +84,10 @@ class ActualBudgetService:
 
     async def create_transaction(self, gasto: Gasto, account_id: str = None):
         """Inserta una transacción en Actual Budget."""
+        logger.debug(f"create_transaction llamado - base_url={self.base_url}, budget_id={self.budget_id}, account_id_param={account_id}")
+
         if not self.is_configured():
-            logger.debug("Actual Budget no configurado, omitiendo sincronización")
+            logger.warning(f"Actual Budget no configurado correctamente - base_url={self.base_url}, budget_id={self.budget_id}")
             return
 
         # Usar el account_id pasado como parámetro, o el configurado por defecto
@@ -92,6 +97,8 @@ class ActualBudgetService:
         if not target_account_id:
             logger.error("No se puede sincronizar: account_id no especificado")
             return
+
+        logger.info(f"Sincronizando transacción: {gasto.amount} {gasto.currency} - {gasto.category} → cuenta {target_account_id}")
 
         payload = self._build_transaction_payload(gasto, account_id=target_account_id)
         session = await self._get_session()

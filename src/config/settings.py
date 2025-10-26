@@ -69,6 +69,9 @@ class Settings:
         if os.getenv("ACTUAL_BUDGET_ENCRYPTION_KEY"):
             config["actual_budget"]["encryption_key"] = os.getenv("ACTUAL_BUDGET_ENCRYPTION_KEY")
 
+        if os.getenv("ACTUAL_BUDGET_PASSWORD"):
+            config["actual_budget"]["password"] = os.getenv("ACTUAL_BUDGET_PASSWORD")
+
         # Cuentas de Actual Budget (múltiples)
         accounts = {}
         if os.getenv("ACTUAL_BUDGET_ACCOUNT_MERCADOPAGO"):
@@ -164,6 +167,11 @@ class Settings:
     def ACTUAL_BUDGET_ACCOUNTS(self) -> dict:
         """Diccionario de cuentas disponibles {nombre: account_id}."""
         return self._config.get("actual_budget", {}).get("accounts", {})
+
+    @property
+    def ACTUAL_BUDGET_PASSWORD(self) -> Optional[str]:
+        """Contraseña del servidor de Actual Budget."""
+        return self._config.get("actual_budget", {}).get("password")
 
     def validate(self):
         """Valida que la configuración esté completa."""
