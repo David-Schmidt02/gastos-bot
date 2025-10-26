@@ -2,6 +2,8 @@
 
 Esta guía te explica cómo deployar el bot en Railway para que funcione 24/7 de forma gratuita.
 
+> 💡 Para desplegar **Actual Budget (server + web)** junto al bot compartiendo la misma base PostgreSQL, seguí primero la guía [docs/railway-actual-budget.md](docs/railway-actual-budget.md) y luego continuá con los pasos de este documento.
+
 ## ✨ Ventajas de usar Railway
 
 - ✅ **100% Gratuito** (500 horas/mes, suficiente para 24/7)
@@ -71,49 +73,19 @@ git push -u origin main
 
 ### 2.3 Configurar variables de entorno
 
-Railway va a intentar deployar, pero **va a fallar** porque falta el token. ¡Está bien!
+Railway va a intentar deployar, pero **va a fallar** porque falta el token y las credenciales de base de datos. ¡Está bien!
 
 1. En Railway, andá a la pestaña **Variables**
-2. Click en **+ New Variable**
-3. Agregá:
-   - `Key`: No hace falta (Railway usa config.yaml)
+2. Cargá las siguientes variables mínimas:
+   - `TELEGRAM_BOT_TOKEN`: Token que te dio BotFather.
+   - `DATABASE_URL`: URL de PostgreSQL (idealmente la misma que usa Actual Budget).
+   - `ACTUAL_BUDGET_API_URL`: URL pública del servicio `actual-server`.
+   - `ACTUAL_BUDGET_BUDGET_ID` y `ACTUAL_BUDGET_ACCOUNT_ID`: IDs del presupuesto y la cuenta donde se guardarán los movimientos.
+   - (Opcional) `ACTUAL_BUDGET_API_TOKEN` y `ACTUAL_BUDGET_ENCRYPTION_KEY` si tu servidor lo requiere.
 
-**IMPORTANTE**: Necesitás crear el `config.yaml` en Railway. Hay dos opciones:
+**IMPORTANTE**: No es necesario subir `config.yaml` si preferís manejar todo por variables de entorno. El bot las interpreta automáticamente.
 
-#### Opción A: Subir config.yaml a GitHub (repo privado)
-
-Si tu repo es **privado**, podés subir `config.yaml` directamente:
-
-```bash
-# En tu máquina local
-git add config.yaml
-git commit -m "Add config.yaml"
-git push
-```
-
-Railway lo detectará automáticamente.
-
-#### Opción B: Usar variables de entorno (más seguro)
-
-Modificá `main.py` para leer el token de variable de entorno:
-
-```python
-# En load_config(), agregar:
-import os
-
-def load_config():
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-
-    # Sobrescribir con variable de entorno si existe
-    if os.getenv("TELEGRAM_BOT_TOKEN"):
-        cfg["bot_token"] = os.getenv("TELEGRAM_BOT_TOKEN")
-
-    return cfg
-```
-
-Luego en Railway:
-- Variable: `TELEGRAM_BOT_TOKEN` = `tu_token_aqui`
+Recordá que también podés definir `DEFAULT_CURRENCY`, `TIMEZONE`, `CATEGORIES` y cualquier otro valor del `config.yaml` mediante variables.
 
 ### 2.4 Verificar que es Worker, no Web
 

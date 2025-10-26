@@ -6,6 +6,7 @@ from typing import Optional, Tuple
 from src.config.settings import settings
 from src.schemas import TelegramMessage, Gasto, SessionDraft
 from src.repositories.ledger_repository import LedgerRepository
+from src.services.actual_budget_service import ActualBudgetService
 from src.services.telegram_service import TelegramService
 from src.utils.logger import setup_logger
 
@@ -18,10 +19,22 @@ class GastosService:
     def __init__(
         self,
         telegram_service: TelegramService,
-        ledger_repository: LedgerRepository
+        ledger_repository: LedgerRepository,
+        actual_budget_service: ActualBudgetService = None,
     ):
         self.telegram = telegram_service
         self.ledger = ledger_repository
+        self.actual_budget = actual_budget_service
+
+    async def sync_with_actual_budget(self, gasto: Gasto):
+        """Sincroniza el gasto con Actual Budget si hay configuración."""
+        if not self.actual_budget:
+            return
+
+        try:
+            await self.actual_budget.create_transaction(gasto)
+        except Exception as exc:
+            logger.error("Fallo al sincronizar con Actual Budget: %s", exc, exc_info=True)
 
     def normalize_amount(self, text: str) -> int:
         """
@@ -193,7 +206,10 @@ class GastosService:
         )
 
         # Guardar en ledger
-        self.ledger.append_gasto(gasto)
+        was_created = self.ledger.append_gasto(gasto)
+
+        if was_created:
+            await self.sync_with_actual_budget(gasto)
 
         # Confirmar al usuario
         await self.telegram.send_message(
